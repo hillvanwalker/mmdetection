@@ -108,13 +108,13 @@ dataset_A_train = dict(
 
 '''
 # ConcatDataset，堆叠相同数据格式多个标注文件
-''''
+'''
 dataset_A_train = dict(
     type='Dataset_A',
     ann_file = ['anno_file_1', 'anno_file_2'],
     pipeline=train_pipeline
 )
-''''
+'''
 # 堆叠不同格式的数据集
 '''
 dataset_A_train = dict()
