@@ -120,4 +120,29 @@ bash tools/dist_test.sh ${CONFIG_FILE} ${CHECKPOINT_FILE} ${GPU_NUM} \
 ### Train predefined models on standard datasets
 
 - 学习率自动调整：默认学习率是适用于 8 GPU，2 sample per gpu，即batch size = 8 * 2 = 16，通过设置`auto_scale_lr.base_batch_size`调整，或传参`--auto-scale-lr`，依据[论文](https://arxiv.org/abs/1706.02677)
-- 
+- 训练参数
+  - `--work-dir ${WORK_DIR}`指定文件保存目录
+  - `--resume-from ${CHECKPOINT_FILE}`从保存的权重恢复训练
+  - `resume-from` and `load-from`：`resume`包括权重、训练状态等，而load只加载权重将从0开始训练
+
+```bash
+# Training on a single GPU
+python tools/train.py ${CONFIG_FILE} [optional arguments]
+# Training on multiple GPUs
+bash ./tools/dist_train.sh ${CONFIG_FILE} ${GPU_NUM} [optional arguments]
+# Single machine multi tasks need different ports (29500 by default)
+CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=29500 ./tools/dist_train.sh ${CONFIG_FILE} 4
+CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=29501 ./tools/dist_train.sh ${CONFIG_FILE} 4
+# Train with multiple machines
+# On the first machine:
+NNODES=2 NODE_RANK=0 PORT=$MASTER_PORT MASTER_ADDR=$MASTER_ADDR sh tools/dist_train.sh $CONFIG $GPUS
+# On the second machine:
+NNODES=2 NODE_RANK=1 PORT=$MASTER_PORT MASTER_ADDR=$MASTER_ADDR sh tools/dist_train.sh $CONFIG $GPUS
+```
+
+###  Customized Datasets
+
+- Three ways to support a new dataset
+  - 转为`COCO format`，当前评估 `mask AP` 仅支持coco
+  - 转为mmdetection的 `middle format`
+  - 自定义实现
