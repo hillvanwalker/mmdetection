@@ -140,9 +140,346 @@ NNODES=2 NODE_RANK=0 PORT=$MASTER_PORT MASTER_ADDR=$MASTER_ADDR sh tools/dist_tr
 NNODES=2 NODE_RANK=1 PORT=$MASTER_PORT MASTER_ADDR=$MASTER_ADDR sh tools/dist_train.sh $CONFIG $GPUS
 ```
 
-###  Customized Datasets
+###  Customized Datasets to COCO
 
 - Three ways to support a new dataset
   - 转为`COCO format`，当前评估 `mask AP` 仅支持coco
-  - 转为mmdetection的 `middle format`
+  - 转为mmdetection的 `middle format`，见[下文](# Customize Datasets)
   - 自定义实现
+
+- 自定义格式数据集`->`COCO格式`->`实现`config`文件`dataset_type`、`data = dict(...)`
+
+```python
+# 转为COCO
+{
+    "images": [image],
+    "annotations": [annotation],
+    "categories": [category]
+}
+image = {
+    "id": int,
+    "width": int,
+    "height": int,
+    "file_name": str,
+}
+annotation = {
+    "id": int,
+    "image_id": int,
+    "category_id": int,
+    "segmentation": RLE or [polygon],
+    "area": float,
+    "bbox": [x,y,width,height],
+    "iscrowd": 0 or 1,
+}
+categories = [{
+    "id": int,
+    "name": str,
+    "supercategory": str,
+}]
+# 修改config的classes，data.train, data.val and data.test
+dataset_type = 'XXXDataset'  # coco type
+classes = ('a', 'b', 'c', 'd', 'e')
+data = dict(
+    samples_per_gpu=2, workers_per_gpu=2,
+    train=dict(
+        type=dataset_type,
+        # explicitly add your class names to the field `classes`
+        classes=classes,
+        ann_file='path/to/your/train/annotation_data',
+        img_prefix='path/to/your/train/image_data'),
+    val=dict(
+        type=dataset_type,
+        # explicitly add your class names to the field `classes`
+        classes=classes,
+        ann_file='path/to/your/val/annotation_data',
+        img_prefix='path/to/your/val/image_data'),
+    test=dict(
+        type=dataset_type,
+        # explicitly add your class names to the field `classes`
+        classes=classes,
+        ann_file='path/to/your/test/annotation_data',
+        img_prefix='path/to/your/test/image_data'))
+# 修改config的model里的num_classes
+model = dict(
+    roi_head=dict(
+        bbox_head=[
+            dict(
+                type='Shared2FCBBoxHead',
+                # explicitly over-write all the `num_classes` field from default 80 to 5.
+                num_classes=5),
+            dict(
+                type='Shared2FCBBoxHead',
+                # explicitly over-write all the `num_classes` field from default 80 to 5.
+                num_classes=5),
+            dict(
+                type='Shared2FCBBoxHead',
+                # explicitly over-write all the `num_classes` field from default 80 to 5.
+                num_classes=5)],
+    # explicitly over-write all the `num_classes` field from default 80 to 5.
+    mask_head=dict(num_classes=5)))
+```
+
+### Customized Models
+
+- 使用标准数据集训练自定义模型，`export MMDET_DATASETS=$data_root`
+- 下载`cityscapes`数据集：`pip install cityscapesscripts`，COCO数据集[格式](https://cocodataset.org/#format-data)
+- 示例：替换模型的`FPN`为`AugFPN`
+
+```python
+# mmdet/models/necks/augfpn.py
+from ..builder import NECKS
+@NECKS.register_module()
+class AugFPN(nn.Module):
+    def __init__(self,
+                in_channels,
+                out_channels,
+                num_outs,
+                start_level=0,
+                end_level=-1,
+                add_extra_convs=False):
+        pass
+    def forward(self, inputs):
+        # implementation is ignored
+        pass
+```
+
+- 导入模型
+
+```python
+# mmdet/models/necks/__init__.py
+from .augfpn import AugFPN
+# 或者在config导入
+custom_imports = dict(
+    imports=['mmdet.models.necks.augfpn.py'],
+    allow_failed_imports=False)
+# 在config中构建
+neck=dict(
+    type='AugFPN',
+    in_channels=[256, 512, 1024, 2048],
+    out_channels=256,
+    num_outs=5)
+```
+
+## Tutorials
+
+### Configs
+
+- 更新config参数
+  - 使用脚本查看完整配置`python tools/misc/print_config.py /PATH/TO/CONFIG`
+  - 更新链式参数项，如`--cfg-options model.backbone.norm_eval=False`
+  - 更新列表参数内部项：`--cfg-options data.train.pipeline.0.type=LoadImageFromWebcam`
+  - 更新列表参数，`--cfg-options workflow="[(train,1),(val,1)]"`
+
+- config结构组成：`dataset, model, schedule, default_runtime`，详见`config/_base_`
+- config命名：`{model}_{backbone}_{neck}_[norm]_[misc]_[gpu x batch_per_gpu]_{schedule}_{dataset}`
+- 继承base之后，使用`_delete_=True,`删除旧配置项
+
+### Customize Datasets
+
+- 自定义数据集转为`middle format`，然后继承`CustomDataset`并实现`load_annotations(self, ann_file)`和 `get_ann_info(self, idx)`
+
+```python
+[
+    {
+        'filename': 'a.jpg',
+        'width': 1280,
+        'height': 720,
+        'ann': {
+            'bboxes': <np.ndarray, float32> (n, 4),
+            'labels': <np.ndarray, int64> (n, ),
+            'bboxes_ignore': <np.ndarray, float32> (k, 4),
+            'labels_ignore': <np.ndarray, int64> (k, ) (optional field)
+        }
+    },
+    ...
+]
+```
+
+- 自定义格式的数据集
+
+```bash
+#
+000001.jpg
+1280 720
+2
+10 20 40 60 1
+20 40 50 60 2
+#
+000002.jpg
+1280 720
+3
+50 20 40 60 2
+20 40 30 45 2
+30 40 50 60 3
+```
+
+- 实现数据集类
+
+```python
+# mmdet/datasets/my_dataset.py 
+import mmcv
+import numpy as np
+from .builder import DATASETS
+from .custom import CustomDataset
+
+@DATASETS.register_module()
+class MyDataset(CustomDataset):
+    CLASSES = ('person', 'bicycle', 'car', 'motorcycle')
+    def load_annotations(self, ann_file):
+        ann_list = mmcv.list_from_file(ann_file)
+        data_infos = []
+        for i, ann_line in enumerate(ann_list):
+            if ann_line != '#':
+                continue
+            img_shape = ann_list[i + 2].split(' ')
+            width = int(img_shape[0])
+            height = int(img_shape[1])
+            bbox_number = int(ann_list[i + 3])
+            anns = ann_line.split(' ')
+            bboxes = []
+            labels = []
+            for anns in ann_list[i + 4:i + 4 + bbox_number]:
+                bboxes.append([float(ann) for ann in anns[:4]])
+                labels.append(int(anns[4]))
+            data_infos.append(
+                dict(
+                    filename=ann_list[i + 1],
+                    width=width,
+                    height=height,
+                    ann=dict(
+                        bboxes=np.array(bboxes).astype(np.float32),
+                        labels=np.array(labels).astype(np.int64))
+                ))
+        return data_infos
+
+    def get_ann_info(self, idx):
+        return self.data_infos[idx]['ann']
+```
+
+- 在config中使用
+
+```python
+dataset_A_train = dict(
+    type='MyDataset',
+    ann_file = 'image_list.txt',
+    pipeline=train_pipeline
+)
+```
+
+- 其他用法见[文件](mmdet/datasets/custom_example.py)
+
+### Data Pipelines
+
+![image-20220628104704097](README.assets/image-20220628104704097.png)
+
+- 组成部分
+  - Data loading：`LoadImageFromFile`，`LoadAnnotations`，`LoadProposals`
+  - Pre-processing：`Resize`，`RandomFlip`，`Pad`，`RandomCrop`，`Normalize`，...
+  - Formatting：`ToTensor`，`ImageToTensor`，`Transpose`，Collect`，...
+  - Test time augmentation：`MultiScaleFlipAug`
+
+- 自定义custom pipelines
+
+```python
+import random
+from mmdet.datasets import PIPELINES
+
+@PIPELINES.register_module()
+class MyTransform:
+    """Add your transform
+    Args:
+        p (float): Probability of shifts. Default 0.5.
+    """
+    def __init__(self, p=0.5):
+        self.p = p
+    def __call__(self, results):
+        if random.random() > self.p:
+            results['dummy'] = True
+        return results
+```
+
+- 在config中使用
+
+```python
+custom_imports = dict(imports=['path.to.my_pipeline'], allow_failed_imports=False)
+img_norm_cfg = dict(
+    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+train_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='LoadAnnotations', with_bbox=True),
+    dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+    dict(type='RandomFlip', flip_ratio=0.5),
+    dict(type='Normalize', **img_norm_cfg),
+    dict(type='Pad', size_divisor=32),
+    dict(type='MyTransform', p=0.2),
+    dict(type='DefaultFormatBundle'),
+    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
+]
+```
+
+### Customize Models
+
+- 包括5种类型：`backbone`、`neck`、`head`、`roi extractor`、`loss`
+- 定义新模型
+
+```python
+# mmdet/models/backbones/mobilenet.py.
+import torch.nn as nn
+from ..builder import BACKBONES
+
+@BACKBONES.register_module()
+class MobileNet(nn.Module):
+    def __init__(self, arg1, arg2):
+        pass
+    def forward(self, x):  # should return a tuple
+        pass
+# mmdet/models/backbones/__init__.py
+from .mobilenet import MobileNet
+# 或在config添加
+custom_imports = dict(
+    imports=['mmdet.models.backbones.mobilenet'],
+    allow_failed_imports=False)
+# 使用新模型
+model = dict(
+    ...
+    backbone=dict(
+        type='MobileNet',
+        arg1=xxx,
+        arg2=xxx),
+    ...
+```
+
+### Runtime Settings
+
+https://mmdetection.readthedocs.io/en/latest/tutorials/customize_runtime.html
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
