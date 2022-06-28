@@ -451,7 +451,135 @@ model = dict(
 
 ### Runtime Settings
 
-https://mmdetection.readthedocs.io/en/latest/tutorials/customize_runtime.html
+- 支持所有PyTorch的`optimizer`，只需在config中修改
+
+```python
+optimizer = dict(type='Adam', lr=0.0003, weight_decay=0.0001)
+```
+
+- 自定义optimizer
+
+```python
+# mmdet/core/optimizer/my_optimizer.py
+from .registry import OPTIMIZERS
+from torch.optim import Optimizer
+
+@OPTIMIZERS.register_module()
+class MyOptimizer(Optimizer):
+    def __init__(self, a, b, c):
+        pass
+# mmdet/core/optimizer/__init__.py
+from .my_optimizer import MyOptimizer
+# config
+custom_imports = dict(imports=['mmdet.core.optimizer.my_optimizer'],
+                      allow_failed_imports=False)
+optimizer = dict(type='MyOptimizer', a=a_value, b=b_value, c=c_value)
+```
+
+- 使用optimizer constructor细化参数，未被optimizer实现的Tricks都应用constructor实现
+
+```python
+from mmcv.utils import build_from_cfg
+from mmcv.runner.optimizer import OPTIMIZER_BUILDERS, OPTIMIZERS
+from mmdet.utils import get_root_logger
+from .my_optimizer import MyOptimizer
+
+@OPTIMIZER_BUILDERS.register_module()
+class MyOptimizerConstructor(object):
+    def __init__(self, optimizer_cfg, paramwise_cfg=None):
+        pass
+    def __call__(self, model):
+        return my_optimizer
+```
+
+- 使用gradient clip稳定训练
+
+```python
+optimizer_config = dict(
+    _delete_=True, grad_clip=dict(max_norm=35, norm_type=2))
+```
+
+- 使用momentum schedule加速收敛
+
+```python
+lr_config = dict(
+    policy='cyclic',
+    target_ratio=(10, 1e-4),
+    cyclic_times=1,
+    step_ratio_up=0.4,
+)
+momentum_config = dict(
+    policy='cyclic',
+    target_ratio=(0.85 / 0.95, 1),
+    cyclic_times=1,
+    step_ratio_up=0.4,
+)
+```
+
+- 学习率管理
+
+```python
+lr_config = dict(policy='poly', power=0.9, min_lr=1e-4, by_epoch=False)
+lr_config = dict(policy='CosineAnnealing', warmup='linear', warmup_iters=1000,
+                 warmup_ratio=1.0 / 10, min_lr_ratio=1e-5)
+```
+
+- 工作流
+  - 注意此处修改workflow不会改变`EvalHook`的行为
+  - `EvalHook`是在`after_train_epoch`时调用
+  - val工作流将影响`after_val_epoch`的Hook
+  - 区别在于是否计算val loss
+
+```python
+workflow = [('train', 1)]
+workflow = [('train', 1), ('val', 1)]
+```
+
+- 自定义hooks
+
+```python
+# mmdet/core/utils/my_hook.py
+from mmcv.runner import HOOKS, Hook
+@HOOKS.register_module()
+class MyHook(Hook):
+    def __init__(self, a, b):
+        pass
+    def before_run(self, runner):
+        pass
+    def after_run(self, runner):
+        pass
+    def before_epoch(self, runner):
+        pass
+    def after_epoch(self, runner):
+        pass
+    def before_iter(self, runner):
+        pass
+    def after_iter(self, runner):
+        pass
+# mmdet/core/utils/__init__.py
+from .my_hook import MyHook
+# config
+custom_imports = dict(imports=['mmdet.core.utils.my_hook'], allow_failed_imports=False)
+custom_hooks = [
+    dict(type='MyHook', a=a_value, b=b_value)
+]
+# 'NORMAL' or 'HIGHEST'
+custom_hooks = [
+    dict(type='MyHook', a=a_value, b=b_value, priority='NORMAL')
+]
+```
+
+- 默认hook
+
+```python
+log_config
+# CheckpointHook
+checkpoint_config = dict(interval=1)
+evaluation
+lr_config
+optimizer_config
+momentum_config
+```
 
 
 
