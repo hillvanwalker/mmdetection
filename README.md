@@ -569,45 +569,142 @@ custom_hooks = [
 ]
 ```
 
-- 默认hook
+- 其他hook
 
 ```python
-log_config
-# CheckpointHook
+# WandbLoggerHook, MlflowLoggerHook, TensorboardLoggerHook(mmcv.runner.LoggerHook)
+log_config = dict(
+    interval=50,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='TensorboardLoggerHook')
+    ])
+# CheckpointHook (mmcv.runner.CheckpointHook)
 checkpoint_config = dict(interval=1)
-evaluation
-lr_config
-optimizer_config
-momentum_config
+# EvalHook(mmdet.core.evaluation.EvalHook)
+evaluation = dict(interval=1, metric='bbox')
+```
+
+### Customize Losses
+
+- loss计算pipeline：`input tensor->loss scalar`
+  - sampling：sample positive and negative
+  - Get element-wise or sample-wise loss
+  - Weighting loss(tensor) element-wisely
+  - Reduce loss to scalar
+  - Weighting loss(scalar)
+
+```python
+# Set sampling method
+train_cfg=dict(
+    rpn=dict(
+        sampler=dict(
+            type='RandomSampler',
+            num=256,
+            pos_fraction=0.5,
+            neg_pos_ub=-1,
+            add_gt_as_proposals=False))
+```
+
+- Tweaking loss调整损失
+
+```python
+# 对应构造函数和config文件
+@LOSSES.register_module()
+class FocalLoss(nn.Module):
+    def __init__(self,
+                 use_sigmoid=True,
+                 gamma=2.0,
+                 alpha=0.25,
+                 reduction='mean',
+                 loss_weight=1.0):
+        pass
+# config 参数对应
+loss_cls=dict(
+    type='FocalLoss',
+    use_sigmoid=True,
+    gamma=2.0,
+    alpha=0.25,
+    loss_weight=1.0,
+    reduction='sum')
+```
+
+### Weight initialization
+
+- 使用`init_cfg`对网络参数进行初始化，子类的`init_cfg`会覆盖父类的`init_cfg`
+- `model_cfg(init_cfg) -> build_from_cfg -> model -> init_weight() -> initialize(self, self.init_cfg) -> children’s init_weight()`
+- 使用方式
+
+```python
+# layer必须是pytorch的基本类型
+init_cfg = dict(type='Constant', layer=['Conv1d', 'Conv2d', 'Linear'], val=1)
+# 指定不同类型的初始化方式
+init_cfg = [dict(type='Constant', layer='Conv1d', val=1),
+            dict(type='Constant', layer='Conv2d', val=2),
+            dict(type='Constant', layer='Linear', val=3)]
+# override
+init_cfg = dict(type='Constant',
+                layer=['Conv1d','Conv2d'], val=1, bias=2,
+                override=dict(type='Constant', name='reg', val=3, bias=4))
+# pretrained
+init_cfg = dict(type='Pretrained',
+            checkpoint='torchvision://resnet50')
+```
+
+- 直接在模型代码中使用
+
+```python
+import torch.nn as nn
+from mmcv.runner import BaseModule
+# or directly inherit mmdet models
+class FooModel(BaseModule)
+	def __init__(self,
+                arg1,
+                arg2,
+                init_cfg=XXX):
+		super(FooModel, self).__init__(init_cfg)
+	    ...
+```
+
+- 在构建模块时使用
+
+```python
+from mmcv.runner import BaseModule, ModuleList
+class FooModel(BaseModule)
+	def __init__(self,
+            	arg1,
+            	arg2,
+            	init_cfg=None):
+		super(FooModel, self).__init__(init_cfg)
+    	...
+    	self.conv1 = ModuleList(init_cfg=XXX)
+```
+
+- 在config文件中使用
+
+```python
+model = dict(
+	...
+	model = dict(
+    	type='FooModel',
+    	arg1=XXX,
+    	arg2=XXX,
+    	init_cfg=XXX),
+        ...
 ```
 
 
 
+### Pytorch to ONNX
 
+见https://mmdetection.readthedocs.io/en/latest/tutorials/pytorch2onnx.html
 
+### ONNX to TensorRT
 
+见https://mmdetection.readthedocs.io/en/latest/tutorials/onnx2tensorrt.html
 
+## Useful Tools and Scripts
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+https://mmdetection.readthedocs.io/en/latest/useful_tools.html
 
 
