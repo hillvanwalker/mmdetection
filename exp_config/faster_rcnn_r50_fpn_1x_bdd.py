@@ -215,7 +215,12 @@ lr_config = dict(
     step=[12, 20, 24])
 runner = dict(type='EpochBasedRunner', max_epochs=25)
 checkpoint_config = dict(interval=1)
-log_config = dict(interval=10, hooks=[dict(type='TextLoggerHook')])
+log_config = dict(
+    interval=10,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='TensorboardLoggerHook')
+    ])
 custom_hooks = [dict(type='NumClassCheckHook')]
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
