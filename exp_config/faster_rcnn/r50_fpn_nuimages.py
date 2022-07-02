@@ -230,6 +230,6 @@ workflow = [('train', 1)]
 opencv_num_threads = 0
 mp_start_method = 'fork'
 auto_scale_lr = dict(enable=False, base_batch_size=16)
-work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_nuimages'
+work_dir = './work_dirs/faster_rcnn/r50_fpn_1x_nuimages'
 auto_resume = False
 gpu_ids = [0,1]
